@@ -4,11 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-## 0.0.2 - 2026-07-11
+## 0.0.3 - 2026-07-11
 
 ### Fixed
 
-- Include `vim-mode.css` in the published package. The `0.0.1` tarball shipped without it, which broke the `vim-prosemirror/style.css` import for consumers.
+- Vim paste (`p`/`P`) now ignores line-ending differences when matching the system clipboard against the most recent Vim yank/delete/change. Windows rewrites `\n` as `\r\n` on a clipboard round-trip, which defeated the exact-text comparison and fell back to the lossy plain-text slice, dropping marks such as highlight, text color, and underline on headings and list items.
+
+## 0.0.2 - 2026-07-11
+
+No functional changes. Republished with a `dist/` byte-identical to `0.0.1`; the `0.0.1` tarball already contained `vim-mode.css` and the `vim-prosemirror/style.css` import resolved correctly.
 
 ## 0.0.1 - 2026-07-11
 

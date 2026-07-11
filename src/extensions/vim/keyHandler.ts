@@ -94,6 +94,11 @@ function updateStatus(view: EditorView, vimState: VimState, status: string) {
   view.dispatch(view.state.tr)
 }
 
+function sameClipboardText(a: string, b: string): boolean {
+  const normalizeNewlines = (text: string) => text.replace(/\r\n?/g, '\n')
+  return normalizeNewlines(a) === normalizeNewlines(b)
+}
+
 function pasteFromClipboard(
   view: EditorView,
   vimState: VimState,
@@ -112,13 +117,15 @@ function pasteFromClipboard(
       }
     } else if (
       internalClipboard?.slice &&
-      clipboard.text === internalClipboard.text
+      sameClipboardText(clipboard.text, internalClipboard.text)
     ) {
       // Prefer the rich structure from the most recent Vim copy/delete/change
       // whenever the plain text matches. The system read may expose only plain
       // text, or a lossy Markdown-reparsed slice that drops marks (highlight,
       // color, underline) on headings and list items; the internal slice is the
-      // lossless source of truth for same-session paste.
+      // lossless source of truth for same-session paste. The comparison ignores
+      // line-ending differences because some platforms (e.g. Windows) normalize
+      // `\n` to `\r\n` on a clipboard round-trip.
       clipboard = {
         text: clipboard.text,
         linewise: internalClipboard.linewise,
