@@ -4,15 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-## 0.3.2 - 2026-07-11
+## 0.0.2 - 2026-07-11
+
+### Fixed
+
+- Include `vim-mode.css` in the published package. The `0.0.1` tarball shipped without it, which broke the `vim-prosemirror/style.css` import for consumers.
+
+## 0.0.1 - 2026-07-11
+
+### Added
+
+- Initial npm publish as `vim-prosemirror`, continuing the unmaintained `vim-prose` package.
 
 ### Fixed
 
 - Vim paste (`p`/`P`) no longer strips marks that Markdown cannot represent — such as highlight, text color, and underline — from headings and list items. When the clipboard text matches the most recent Vim yank/delete/change, the lossless internal slice is now always preferred over a Markdown-reparsed slice.
 
-### Changed
+---
 
-- Published to npm as `vim-prosemirror` (continuation of the unmaintained `vim-prose` package).
+Pre-fork history from the upstream `vim-prose` package:
 
 ## 0.3.1 - 2026-03-28
 
