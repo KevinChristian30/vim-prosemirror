@@ -21,7 +21,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc && cp src/extensions/vim/vim-mode.css dist/extensions/vim/vim-mode.css",
+    "build": "tsc && node scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "dev": "vite demo",
     "prepare": "npm run build"
