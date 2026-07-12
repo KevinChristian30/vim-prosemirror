@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.0.4 - 2026-07-12
+
+### Fixed
+
+- Strip carriage returns when reading the system clipboard. On Windows the clipboard round-trips text with `\r\n` line endings, which left stray `\r` characters in pasted content (rendering as extra line breaks under `white-space: pre-wrap`) and split linewise paste incorrectly. Clipboard text is now normalized to `\n` on read, so vim paste of externally-copied text behaves the same across platforms.
+
 ## 0.0.3 - 2026-07-11
 
 ### Fixed

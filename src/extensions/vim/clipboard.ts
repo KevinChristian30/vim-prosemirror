@@ -506,8 +506,15 @@ async function readClipboardType(
   }
 }
 
+function normalizeClipboardReadText(text: string): string {
+  return text.replace(/\r\n?/g, '\n')
+}
+
 export function getLinewiseClipboardLines(text: string): string[] {
-  const withoutTrailingNewline = text.endsWith('\n') ? text.slice(0, -1) : text
+  const normalized = normalizeClipboardReadText(text)
+  const withoutTrailingNewline = normalized.endsWith('\n')
+    ? normalized.slice(0, -1)
+    : normalized
   return withoutTrailingNewline.length > 0
     ? withoutTrailingNewline.split('\n')
     : ['']
@@ -645,7 +652,9 @@ export async function readSystemClipboardContent(
     try {
       const items = await navigator.clipboard.read()
       for (const item of items) {
-        const text = (await readClipboardType(item, 'text/plain')) ?? ''
+        const text = normalizeClipboardReadText(
+          (await readClipboardType(item, 'text/plain')) ?? '',
+        )
 
         const serialized = await readClipboardType(item, VIM_PROSE_CLIPBOARD_MIME)
         if (serialized) {
@@ -714,8 +723,9 @@ export async function readSystemClipboardContent(
     }
   }
 
-  const text = await readSystemClipboardText()
-  if (text === null) return null
+  const rawText = await readSystemClipboardText()
+  if (rawText === null) return null
+  const text = normalizeClipboardReadText(rawText)
   if (looksLikeStructuredMarkdown(text)) {
     const markdownSlice = parseMarkdownToSlice(state, text)
     if (markdownSlice) {
