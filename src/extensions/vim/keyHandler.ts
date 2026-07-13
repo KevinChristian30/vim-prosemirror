@@ -19,6 +19,15 @@ import {
   motionWordForward,
   motionWordBackward,
   motionWordEnd,
+  motionWORDForward,
+  motionWORDBackward,
+  motionWORDEnd,
+  motionWordEndBackward,
+  motionFirstNonBlankAt,
+  motionLastNonBlankAt,
+  motionParagraphForward,
+  motionParagraphBackward,
+  motionMatchingBracket,
   motionFindCharForward,
   motionFindCharBackward,
   motionTillCharForward,
@@ -233,6 +242,36 @@ function centerCursorInEditor(view: EditorView, pos: number) {
 }
 
 /**
+ * Resolve the document position at the top (`H`), middle (`M`), or bottom (`L`)
+ * of the visible editor viewport. Uses `posAtCoords`, so it maps a screen point
+ * to a document position identically across platforms and browsers.
+ */
+function screenLinePos(
+  view: EditorView,
+  where: 'H' | 'M' | 'L',
+): number | null {
+  try {
+    const dom = view.dom as HTMLElement
+    const domRect = dom.getBoundingClientRect()
+    const scroller = getScrollableAncestor(dom)
+    const rect = scroller ? scroller.getBoundingClientRect() : domRect
+    const left = domRect.left + Math.min(24, Math.max(1, domRect.width / 2))
+    let top: number
+    if (where === 'H') top = rect.top + 8
+    else if (where === 'L') top = rect.bottom - 8
+    else top = rect.top + rect.height / 2
+    const clampedTop = Math.min(
+      Math.max(top, domRect.top + 1),
+      domRect.bottom - 1,
+    )
+    const coords = view.posAtCoords({ left, top: clampedTop })
+    return coords ? coords.pos : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * Handle operator + motion/text-object combination.
  */
 function handleOperatorMotion(
@@ -329,9 +368,95 @@ function resolveMotionKey(
       return applyMotionNTimes(state, pos, count, motionWordEnd)
     case 'b':
       return applyMotionNTimes(state, pos, count, motionWordBackward)
+    case 'W':
+      return applyMotionNTimes(state, pos, count, motionWORDForward)
+    case 'E':
+      return applyMotionNTimes(state, pos, count, motionWORDEnd)
+    case 'B':
+      return applyMotionNTimes(state, pos, count, motionWORDBackward)
+    case '{':
+      return applyMotionNTimes(state, pos, count, motionParagraphBackward)
+    case '}':
+      return applyMotionNTimes(state, pos, count, motionParagraphForward)
+    case '%':
+      return motionMatchingBracket(state, pos)
+    case '|': {
+      const lineS = motionLineStart(state, pos)
+      const lineE = motionLineEnd(state, pos)
+      return Math.min(lineS + (count - 1), lineE)
+    }
+    case '+': {
+      let cur = pos
+      for (let i = 0; i < count; i++) cur = motionDown(state, cur)
+      return motionFirstNonBlankAt(state, cur)
+    }
+    case '-': {
+      let cur = pos
+      for (let i = 0; i < count; i++) cur = motionUp(state, cur)
+      return motionFirstNonBlankAt(state, cur)
+    }
+    case '_': {
+      let cur = pos
+      for (let i = 0; i < count - 1; i++) cur = motionDown(state, cur)
+      return motionFirstNonBlankAt(state, cur)
+    }
     default:
       return null
   }
+}
+
+function reverseFind(motion: 'f' | 'F' | 't' | 'T'): 'f' | 'F' | 't' | 'T' {
+  if (motion === 'f') return 'F'
+  if (motion === 'F') return 'f'
+  if (motion === 't') return 'T'
+  return 't'
+}
+
+/**
+ * Resolve a single find/till repeat (`;`/`,`). For `t`/`T`, skips the current
+ * stop so a repeat makes progress instead of staying put.
+ */
+function findOnce(
+  state: EditorState,
+  pos: number,
+  motion: 'f' | 'F' | 't' | 'T',
+  char: string,
+): number | null {
+  switch (motion) {
+    case 'f':
+      return motionFindCharForward(state, pos, char)
+    case 'F':
+      return motionFindCharBackward(state, pos, char)
+    case 't': {
+      const immediate = motionFindCharForward(state, pos, char)
+      const start = immediate !== null && immediate === pos + 1 ? pos + 1 : pos
+      const found = motionFindCharForward(state, start, char)
+      return found !== null ? found - 1 : null
+    }
+    case 'T': {
+      const immediate = motionFindCharBackward(state, pos, char)
+      const start = immediate !== null && immediate === pos - 1 ? pos - 1 : pos
+      const found = motionFindCharBackward(state, start, char)
+      return found !== null ? found + 1 : null
+    }
+  }
+  return null
+}
+
+function repeatFind(
+  state: EditorState,
+  pos: number,
+  motion: 'f' | 'F' | 't' | 'T',
+  char: string,
+  count: number,
+): number | null {
+  let current = pos
+  for (let i = 0; i < count; i++) {
+    const next = findOnce(state, current, motion, char)
+    if (next === null) return null
+    current = next
+  }
+  return current
 }
 
 function startInsertTracking(vimState: VimState, action: RepeatableAction) {
@@ -474,7 +599,7 @@ function replayLastAction(
         } else if (action.findMotion === 'F' || action.findMotion === 'T') {
           from = targetPos
           to = pos
-        } else if (action.motion === 'e') {
+        } else if (action.motion === 'e' || action.motion === 'E') {
           to = targetPos + 1
         }
 
@@ -862,6 +987,11 @@ export function handleKeyDown(
       return true
     }
 
+    if (vimState.findMotion) {
+      vimState.lastFindMotion = vimState.findMotion
+      vimState.lastFindChar = key
+    }
+
     const count = getEffectiveCount(vimState)
     let targetPos: number | null = null
 
@@ -960,29 +1090,45 @@ export function handleKeyDown(
     }
   }
 
-  // ── GG PENDING ──
+  // ── G-PREFIX PENDING (gg, ge, g_) ──
   if (vimState.ggPending) {
+    vimState.ggPending = false
+    const gCount = getEffectiveCount(vimState)
+    let targetPos: number | null = null
+    let inclusive = false
+
     if (key === 'g') {
-      vimState.ggPending = false
-      const targetPos = motionDocStart(state)
-      if (vimState.operator) {
-        const tr = handleOperatorMotion(state, vimState, pos, targetPos, false)
-        if (tr) view.dispatch(tr)
-      } else if (
-        vimState.mode === 'visual' ||
-        vimState.mode === 'visual-line'
-      ) {
-        const tr = state.tr
-        updateVisualSelection(state, tr, vimState, targetPos)
-        vimState.visualHead = targetPos
-        view.dispatch(tr)
-      } else {
-        view.dispatch(moveCursor(state, targetPos))
-      }
+      targetPos = motionDocStart(state)
+    } else if (key === 'e') {
+      let cur = pos
+      for (let i = 0; i < gCount; i++) cur = motionWordEndBackward(state, cur)
+      targetPos = cur
+      inclusive = true
+    } else if (key === '_') {
+      let cur = pos
+      for (let i = 0; i < gCount - 1; i++) cur = motionDown(state, cur)
+      targetPos = motionLastNonBlankAt(state, cur)
+      inclusive = true
+    }
+
+    if (targetPos === null) {
       clearPendingState(vimState)
       return true
     }
-    vimState.ggPending = false
+
+    if (vimState.operator) {
+      const to = inclusive && targetPos >= pos ? targetPos + 1 : targetPos
+      const tr = handleOperatorMotion(state, vimState, pos, to, false)
+      if (tr) view.dispatch(tr)
+    } else if (vimState.mode === 'visual' || vimState.mode === 'visual-line') {
+      const tr = state.tr
+      updateVisualSelection(state, tr, vimState, targetPos)
+      vimState.visualHead = targetPos
+      view.dispatch(tr)
+    } else {
+      view.dispatch(moveCursor(state, targetPos))
+    }
+    clearPendingState(vimState)
     return true
   }
 
@@ -1286,6 +1432,42 @@ export function handleKeyDown(
           vimState.findMotion = key
           return true
         }
+
+        // ; , repeat last find
+        if (key === ';' || key === ',') {
+          if (vimState.lastFindMotion && vimState.lastFindChar) {
+            const motion =
+              key === ';'
+                ? vimState.lastFindMotion
+                : reverseFind(vimState.lastFindMotion)
+            const repeatPos = repeatFind(
+              state,
+              pos,
+              motion,
+              vimState.lastFindChar,
+              count,
+            )
+            if (repeatPos !== null) {
+              const tr = state.tr
+              updateVisualSelection(state, tr, vimState, repeatPos)
+              vimState.visualHead = repeatPos
+              view.dispatch(tr)
+            }
+          }
+          return true
+        }
+
+        // H/M/L screen motions
+        if (key === 'H' || key === 'M' || key === 'L') {
+          const screenPos = screenLinePos(view, key)
+          if (screenPos !== null) {
+            const tr = state.tr
+            updateVisualSelection(state, tr, vimState, screenPos)
+            vimState.visualHead = screenPos
+            view.dispatch(tr)
+          }
+          return true
+        }
       }
     }
     return true // Consume all keys in visual mode
@@ -1366,9 +1548,19 @@ export function handleKeyDown(
         to = targetPos
       }
 
-      // e is inclusive of the word's last character
-      if (key === 'e') {
+      // e/E are inclusive of the word's last character
+      if (key === 'e' || key === 'E') {
         to = targetPos + 1
+      }
+
+      // % is inclusive of the matched bracket, in either direction
+      if (key === '%') {
+        if (targetPos >= pos) {
+          to = targetPos + 1
+        } else {
+          from = pos + 1
+          to = targetPos
+        }
       }
 
       const tr = handleOperatorMotion(state, vimState, from, to, false)
@@ -1646,7 +1838,17 @@ export function handleKeyDown(
     case '$':
     case 'w':
     case 'e':
-    case 'b': {
+    case 'b':
+    case 'W':
+    case 'E':
+    case 'B':
+    case '{':
+    case '}':
+    case '%':
+    case '|':
+    case '+':
+    case '-':
+    case '_': {
       const targetPos = resolveMotionKey(state, pos, key, count, false)
       if (targetPos !== null) {
         view.dispatch(moveCursor(state, targetPos))
@@ -1679,6 +1881,37 @@ export function handleKeyDown(
     case 'T': {
       vimState.findPending = true
       vimState.findMotion = key
+      return true
+    }
+
+    // Repeat last find (; same direction, , reversed)
+    case ';':
+    case ',': {
+      if (vimState.lastFindMotion && vimState.lastFindChar) {
+        const motion =
+          key === ';'
+            ? vimState.lastFindMotion
+            : reverseFind(vimState.lastFindMotion)
+        const targetPos = repeatFind(
+          state,
+          pos,
+          motion,
+          vimState.lastFindChar,
+          count,
+        )
+        if (targetPos !== null) view.dispatch(moveCursor(state, targetPos))
+      }
+      clearPendingState(vimState)
+      return true
+    }
+
+    // Screen motions (top/middle/bottom of viewport)
+    case 'H':
+    case 'M':
+    case 'L': {
+      const targetPos = screenLinePos(view, key)
+      if (targetPos !== null) view.dispatch(moveCursor(state, targetPos))
+      clearPendingState(vimState)
       return true
     }
 

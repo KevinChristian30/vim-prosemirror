@@ -419,6 +419,271 @@ export function motionWordEnd(state: EditorState, pos: number): number {
 }
 
 /**
+ * Move forward by one WORD (whitespace-delimited, `W` motion).
+ */
+export function motionWORDForward(state: EditorState, pos: number): number {
+  const $pos = state.doc.resolve(pos)
+  if ($pos.depth === 0) {
+    const next = findNextTextPos(state, pos)
+    return next ?? pos
+  }
+
+  const lineEndPos = $pos.end($pos.depth)
+  if (pos >= lineEndPos) {
+    return crossToNextTextblock(state, $pos) ?? pos
+  }
+
+  let current = pos
+  if (isWhitespace(charAt(state, current))) {
+    while (current < lineEndPos && isWhitespace(charAt(state, current))) current++
+  } else {
+    while (current < lineEndPos && !isWhitespace(charAt(state, current))) current++
+    while (current < lineEndPos && isWhitespace(charAt(state, current))) current++
+  }
+
+  if (current >= lineEndPos) {
+    return crossToNextTextblock(state, $pos) ?? lineEndPos
+  }
+  return current
+}
+
+/**
+ * Move backward by one WORD (whitespace-delimited, `B` motion).
+ */
+export function motionWORDBackward(state: EditorState, pos: number): number {
+  const $pos = state.doc.resolve(pos)
+  if ($pos.depth === 0) {
+    const prev = findPrevTextPos(state, pos)
+    return prev ?? pos
+  }
+
+  const lineStartPos = $pos.start($pos.depth)
+  if (pos <= lineStartPos) {
+    return crossToPrevTextblock(state, $pos) ?? pos
+  }
+
+  let current = pos - 1
+  while (current > lineStartPos && isWhitespace(charAt(state, current))) current--
+  if (current <= lineStartPos) return lineStartPos
+  while (current > lineStartPos && !isWhitespace(charAt(state, current - 1))) {
+    current--
+  }
+  return current
+}
+
+/**
+ * Move to the end of the current or next WORD (whitespace-delimited, `E`).
+ */
+export function motionWORDEnd(state: EditorState, pos: number): number {
+  let $line = state.doc.resolve(pos)
+  let current: number
+
+  if ($line.depth === 0) {
+    const next = findNextTextPos(state, pos)
+    if (next === null) return pos
+    $line = state.doc.resolve(next)
+    if ($line.depth === 0) return next
+    current = next
+  } else {
+    current = pos + 1
+  }
+
+  let lineEndPos = $line.end($line.depth)
+  while (true) {
+    if (current >= lineEndPos) {
+      const nextStart = crossToNextTextblock(state, $line)
+      if (nextStart === null) return pos
+      $line = state.doc.resolve(nextStart)
+      lineEndPos = $line.depth === 0 ? nextStart : $line.end($line.depth)
+      current = nextStart
+      continue
+    }
+    if (isWhitespace(charAt(state, current))) {
+      current++
+      continue
+    }
+    break
+  }
+
+  while (current + 1 < lineEndPos && !isWhitespace(charAt(state, current + 1))) {
+    current++
+  }
+  return current
+}
+
+/**
+ * Move backward to the end of the previous word (`ge` motion). Lands on the
+ * nearest word-end position strictly before the cursor.
+ */
+export function motionWordEndBackward(state: EditorState, pos: number): number {
+  let $line = state.doc.resolve(pos)
+  let current: number
+
+  if ($line.depth === 0) {
+    const prev = findPrevTextPos(state, pos)
+    if (prev === null) return pos
+    $line = state.doc.resolve(prev)
+    if ($line.depth === 0) return pos
+    current = prev
+  } else {
+    current = pos - 1
+  }
+
+  let lineStartPos = $line.start($line.depth)
+  let lineEndPos = $line.end($line.depth)
+
+  while (current >= 0) {
+    if (current < lineStartPos) {
+      const prevEnd = crossToPrevTextblock(state, $line)
+      if (prevEnd === null) return pos
+      $line = state.doc.resolve(prevEnd)
+      if ($line.depth === 0) return pos
+      lineStartPos = $line.start($line.depth)
+      lineEndPos = $line.end($line.depth)
+      current = lineEndPos - 1
+      continue
+    }
+    const ch = charAt(state, current)
+    if (!isWhitespace(ch)) {
+      const atLineEnd = current + 1 >= lineEndPos
+      const nextCh = atLineEnd ? '' : charAt(state, current + 1)
+      if (
+        atLineEnd ||
+        isWhitespace(nextCh) ||
+        isWordChar(nextCh) !== isWordChar(ch)
+      ) {
+        return current
+      }
+    }
+    current--
+  }
+  return pos
+}
+
+/**
+ * First non-blank character position on the line containing `pos`.
+ */
+export function motionFirstNonBlankAt(state: EditorState, pos: number): number {
+  const lineS = lineStartAt(state, pos)
+  const lineE = lineEndAt(state, pos)
+  let i = lineS
+  while (i < lineE && isWhitespace(charAt(state, i))) i++
+  return i
+}
+
+/**
+ * Last non-blank character position on the line containing `pos` (`g_` motion).
+ */
+export function motionLastNonBlankAt(state: EditorState, pos: number): number {
+  const lineS = lineStartAt(state, pos)
+  const lineE = lineEndAt(state, pos)
+  let i = lineE - 1
+  while (i > lineS && isWhitespace(charAt(state, i))) i--
+  return Math.max(i, lineS)
+}
+
+/**
+ * Collect the start position and emptiness of every textblock in the document.
+ */
+function collectTextblocks(
+  state: EditorState,
+): { start: number; empty: boolean }[] {
+  const blocks: { start: number; empty: boolean }[] = []
+  state.doc.descendants((node, nodePos) => {
+    if (node.isTextblock) {
+      blocks.push({ start: nodePos + 1, empty: node.content.size === 0 })
+      return false
+    }
+    return true
+  })
+  return blocks
+}
+
+/**
+ * Move forward to the next blank line / paragraph boundary (`}` motion).
+ */
+export function motionParagraphForward(
+  state: EditorState,
+  pos: number,
+): number {
+  const blocks = collectTextblocks(state)
+  for (const block of blocks) {
+    if (block.start > pos && block.empty) return block.start
+  }
+  return motionDocEnd(state)
+}
+
+/**
+ * Move backward to the previous blank line / paragraph boundary (`{` motion).
+ */
+export function motionParagraphBackward(
+  state: EditorState,
+  pos: number,
+): number {
+  const blocks = collectTextblocks(state)
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    if (blocks[i].start < pos && blocks[i].empty) return blocks[i].start
+  }
+  return motionDocStart(state)
+}
+
+const BRACKET_PAIRS: Record<string, { match: string; forward: boolean }> = {
+  '(': { match: ')', forward: true },
+  '[': { match: ']', forward: true },
+  '{': { match: '}', forward: true },
+  ')': { match: '(', forward: false },
+  ']': { match: '[', forward: false },
+  '}': { match: '{', forward: false },
+}
+
+/**
+ * Jump to the bracket matching the first bracket at or after the cursor on the
+ * current line (`%` motion). Respects nesting.
+ */
+export function motionMatchingBracket(state: EditorState, pos: number): number {
+  const $pos = state.doc.resolve(pos)
+  if ($pos.depth === 0) return pos
+  const lineEndPos = $pos.end($pos.depth)
+
+  let bracketPos = -1
+  let bracket = ''
+  for (let i = pos; i < lineEndPos; i++) {
+    const ch = charAt(state, i)
+    if (ch.length === 1 && BRACKET_PAIRS[ch]) {
+      bracketPos = i
+      bracket = ch
+      break
+    }
+  }
+  if (bracketPos === -1) return pos
+
+  const { match, forward } = BRACKET_PAIRS[bracket]
+  const docSize = state.doc.content.size
+  let depth = 0
+
+  if (forward) {
+    for (let i = bracketPos; i < docSize; i++) {
+      const ch = charAt(state, i)
+      if (ch === bracket) depth++
+      else if (ch === match) {
+        depth--
+        if (depth === 0) return i
+      }
+    }
+  } else {
+    for (let i = bracketPos; i >= 0; i--) {
+      const ch = charAt(state, i)
+      if (ch === bracket) depth++
+      else if (ch === match) {
+        depth--
+        if (depth === 0) return i
+      }
+    }
+  }
+  return pos
+}
+
+/**
  * Forward find char on current line (f motion).
  */
 export function motionFindCharForward(

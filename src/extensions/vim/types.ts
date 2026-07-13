@@ -32,6 +32,8 @@ export interface VimState {
   operator: 'd' | 'y' | 'c' | null
   findPending: boolean
   findMotion: 'f' | 'F' | 't' | 'T' | null
+  lastFindMotion: 'f' | 'F' | 't' | 'T' | null
+  lastFindChar: string | null
   ggPending: boolean
   visualAnchor: number | null
   visualHead: number | null
@@ -75,6 +77,8 @@ export function defaultVimState(): VimState {
     operator: null,
     findPending: false,
     findMotion: null,
+    lastFindMotion: null,
+    lastFindChar: null,
     ggPending: false,
     visualAnchor: null,
     visualHead: null,

@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.2.0 - 2026-07-13
+
+### Added
+
+- `W` / `B` / `E` — WORD-wise (whitespace-delimited) motions, the counterparts to `w` / `b` / `e`. `E` is inclusive as an operator motion (`dE`, `cE`).
+- `;` / `,` — repeat the last `f` / `F` / `t` / `T`, in the same (`;`) or reversed (`,`) direction. Count-aware, and `t` / `T` no longer stick when the cursor is already at the stop.
+- `{` / `}` — jump backward / forward by paragraph (blank line).
+- `%` — jump to the matching bracket (`()`, `[]`, `{}`), respecting nesting. Inclusive as an operator motion (`d%`).
+- `ge` — move backward to the end of the previous word.
+- `g_` — move to the last non-blank character of the line.
+- `H` / `M` / `L` — move the cursor to the top / middle / bottom of the visible viewport.
+- `+` / `-` — first non-blank of the next / previous line; `_` — first non-blank of the current line; `|` — go to a column by count (`5|`).
+
+All motions work in normal and visual mode, compose with operators (`d`, `c`, `y`) and counts where applicable, and are resolved against ProseMirror document positions, so they behave identically on Windows, macOS, and Linux.
+
 ## 0.1.0 - 2026-07-13
 
 ### Added
