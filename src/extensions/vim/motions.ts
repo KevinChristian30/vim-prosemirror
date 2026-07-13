@@ -369,6 +369,56 @@ export function motionWordBackward(state: EditorState, pos: number): number {
 }
 
 /**
+ * Move to the end of the current or next word (`e` motion). Lands on the last
+ * character of the word, treats runs of word characters and runs of
+ * punctuation as separate words, and skips across line boundaries.
+ */
+export function motionWordEnd(state: EditorState, pos: number): number {
+  let $line = state.doc.resolve(pos)
+  let current: number
+
+  if ($line.depth === 0) {
+    const next = findNextTextPos(state, pos)
+    if (next === null) return pos
+    $line = state.doc.resolve(next)
+    if ($line.depth === 0) return next
+    current = next
+  } else {
+    current = pos + 1
+  }
+
+  let lineEndPos = $line.end($line.depth)
+
+  // Advance past whitespace, crossing into following textblocks as needed,
+  // until we land on the first character of the target word.
+  while (true) {
+    if (current >= lineEndPos) {
+      const nextStart = crossToNextTextblock(state, $line)
+      if (nextStart === null) return pos
+      $line = state.doc.resolve(nextStart)
+      lineEndPos = $line.depth === 0 ? nextStart : $line.end($line.depth)
+      current = nextStart
+      continue
+    }
+    if (isWhitespace(charAt(state, current))) {
+      current++
+      continue
+    }
+    break
+  }
+
+  // Walk to the last character of this run of same-class characters.
+  const startIsWord = isWordChar(charAt(state, current))
+  while (current + 1 < lineEndPos) {
+    const nextCh = charAt(state, current + 1)
+    if (isWhitespace(nextCh) || isWordChar(nextCh) !== startIsWord) break
+    current++
+  }
+
+  return current
+}
+
+/**
  * Forward find char on current line (f motion).
  */
 export function motionFindCharForward(

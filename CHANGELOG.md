@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+## 0.1.0 - 2026-07-13
+
+### Added
+
+- `e` motion — move to the end of the current or next word. Works as a standalone motion in normal and visual mode, as an inclusive operator motion (`de`, `ce`, `ye`), with counts (`3e`), and with dot-repeat. Runs of word characters and runs of punctuation are treated as separate words, and the motion skips across line boundaries.
+
+### Fixed
+
+- `zz` now recenters the cursor. Centering (also used by search `/`, `n`, `N`, `*` and mark jumps) adjusted `scrollTop` on the ProseMirror editable element, which is typically not the scroll container — host apps usually wrap the editor in an `overflow: auto` ancestor. Centering now walks up to the nearest scrollable ancestor (never the page body), so it works regardless of where the app puts the scroll boundary.
+
 ## 0.0.4 - 2026-07-12
 
 ### Fixed

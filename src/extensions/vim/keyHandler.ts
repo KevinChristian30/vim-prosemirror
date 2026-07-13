@@ -18,6 +18,7 @@ import {
   motionDocEnd,
   motionWordForward,
   motionWordBackward,
+  motionWordEnd,
   motionFindCharForward,
   motionFindCharBackward,
   motionTillCharForward,
@@ -184,17 +185,48 @@ function moveCursor(state: EditorState, pos: number): Transaction {
 }
 
 /**
+ * Find the nearest scrollable ancestor of an element (including the element
+ * itself), stopping short of the document body/root so the outer page is never
+ * scrolled. The editable element rarely scrolls itself — the surrounding app
+ * usually wraps it in an `overflow: auto` container — so `zz`, search, and mark
+ * recentering must target that ancestor rather than `view.dom`.
+ */
+function getScrollableAncestor(el: HTMLElement): HTMLElement | null {
+  const doc = el.ownerDocument
+  const win = doc.defaultView
+  if (!win) return null
+  const body = doc.body
+  const root = doc.documentElement
+
+  let node: HTMLElement | null = el
+  while (node && node !== body && node !== root) {
+    const overflowY = win.getComputedStyle(node).overflowY
+    if (
+      (overflowY === 'auto' ||
+        overflowY === 'scroll' ||
+        overflowY === 'overlay') &&
+      node.scrollHeight > node.clientHeight
+    ) {
+      return node
+    }
+    node = node.parentElement
+  }
+  return null
+}
+
+/**
  * Center the cursor vertically within the editor's scroll container.
- * Only adjusts the editor's own scrollTop — never scrolls the outer page.
+ * Only adjusts the scroll container — never scrolls the outer page.
  */
 function centerCursorInEditor(view: EditorView, pos: number) {
   try {
+    const scroller = getScrollableAncestor(view.dom as HTMLElement)
+    if (!scroller) return
     const coords = view.coordsAtPos(pos)
-    const dom = view.dom
-    const rect = dom.getBoundingClientRect()
+    const rect = scroller.getBoundingClientRect()
     const cursorFromTop = coords.top - rect.top
-    const centerTarget = rect.height / 2
-    dom.scrollTop += cursorFromTop - centerTarget
+    const centerTarget = scroller.clientHeight / 2
+    scroller.scrollTop += cursorFromTop - centerTarget
   } catch {
     // ignore
   }
@@ -293,6 +325,8 @@ function resolveMotionKey(
       return motionDocEnd(state)
     case 'w':
       return applyMotionNTimes(state, pos, count, motionWordForward)
+    case 'e':
+      return applyMotionNTimes(state, pos, count, motionWordEnd)
     case 'b':
       return applyMotionNTimes(state, pos, count, motionWordBackward)
     default:
@@ -440,6 +474,8 @@ function replayLastAction(
         } else if (action.findMotion === 'F' || action.findMotion === 'T') {
           from = targetPos
           to = pos
+        } else if (action.motion === 'e') {
+          to = targetPos + 1
         }
 
         vimState.operator = action.operator!
@@ -1330,6 +1366,11 @@ export function handleKeyDown(
         to = targetPos
       }
 
+      // e is inclusive of the word's last character
+      if (key === 'e') {
+        to = targetPos + 1
+      }
+
       const tr = handleOperatorMotion(state, vimState, from, to, false)
       if (tr) view.dispatch(tr)
       // Record lastAction for dot repeat
@@ -1604,6 +1645,7 @@ export function handleKeyDown(
     case '^':
     case '$':
     case 'w':
+    case 'e':
     case 'b': {
       const targetPos = resolveMotionKey(state, pos, key, count, false)
       if (targetPos !== null) {
